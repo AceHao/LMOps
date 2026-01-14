@@ -43,11 +43,16 @@ export WANDB_API_KEY="${WANDB_API_KEY:-YOUR_WANDB_API_KEY}"
 
 export HYDRA_FULL_ERROR=1
 
+# Get the directory where this script is located and construct data path
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GAD_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+DATA_DIR="${GAD_DIR}/chai_opus_data"
+
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.prompt_key=content \
-    data.train_files=/Users/acehao/workspace/LMOps/gad/data/transformed_chai_train.parquet \
-    data.val_files=/Users/acehao/workspace/LMOps/gad/data/transformed_chai_val.parquet \
+    data.train_files=${DATA_DIR}/transformed_chai_train.parquet \
+    data.val_files=${DATA_DIR}/transformed_chai_val.parquet \
     data.train_batch_size=256 \
     data.val_batch_size=600 \
     data.max_prompt_length=2048 \

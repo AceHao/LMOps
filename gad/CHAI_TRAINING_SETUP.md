@@ -8,6 +8,7 @@ After completing setup (see below), start training with ONE command:
 
 ### For 3B Model (Recommended for testing):
 ```bash
+cd verl && git checkout warmup && cd ..
 bash scripts/train/chai-3b-warmup-lr1e-6.sh \
   --model /tmp/Qwen2.5-3B-Instruct \
   --reward_model /tmp/Qwen2.5-3B-Instruct \
@@ -17,6 +18,7 @@ bash scripts/train/chai-3b-warmup-lr1e-6.sh \
 
 ### For 7B Model:
 ```bash
+cd verl && git checkout warmup && cd ..
 bash scripts/train/chai-7b-warmup-lr1e-6.sh \
   --model /tmp/Qwen2.5-7B-Instruct \
   --reward_model /tmp/Qwen2.5-7B-Instruct \
@@ -26,6 +28,7 @@ bash scripts/train/chai-7b-warmup-lr1e-6.sh \
 
 ### For 14B Model:
 ```bash
+cd verl && git checkout warmup && cd ..
 bash scripts/train/chai-14b-warmup-lr1e-6.sh \
   --model /tmp/Qwen2.5-14B-Instruct \
   --reward_model /tmp/Qwen2.5-14B-Instruct \
@@ -35,6 +38,7 @@ bash scripts/train/chai-14b-warmup-lr1e-6.sh \
 
 ### For 235B Model:
 ```bash
+cd verl && git checkout warmup && cd ..
 bash scripts/train/chai-235b-warmup-lr1e-6.sh \
   --model /tmp/Qwen2.5-235B-Instruct \
   --reward_model /tmp/Qwen2.5-235B-Instruct \
@@ -89,6 +93,9 @@ After warmup completes (~step 2,204), prepare and run adversarial training:
 
 #### For 3B Model:
 ```bash
+# Switch verl to gad branch
+cd verl && git checkout gad && cd ..
+
 # Prepare adversarial training directory
 STEP=2204
 mkdir /tmp/chai-3b-adversarial
@@ -104,6 +111,9 @@ bash scripts/train/chai-3b-adversarial-lr1e-6.sh \
 
 #### For 7B Model:
 ```bash
+# Switch verl to gad branch
+cd verl && git checkout gad && cd ..
+
 # Prepare adversarial training directory
 STEP=2204
 mkdir /tmp/chai-7b-adversarial
@@ -119,6 +129,9 @@ bash scripts/train/chai-7b-adversarial-lr1e-6.sh \
 
 #### For 14B Model:
 ```bash
+# Switch verl to gad branch
+cd verl && git checkout gad && cd ..
+
 # Prepare adversarial training directory
 STEP=2204
 mkdir /tmp/chai-14b-adversarial
@@ -134,6 +147,9 @@ bash scripts/train/chai-14b-adversarial-lr1e-6.sh \
 
 #### For 235B Model:
 ```bash
+# Switch verl to gad branch
+cd verl && git checkout gad && cd ..
+
 # Prepare adversarial training directory
 STEP=2204
 mkdir /tmp/chai-235b-adversarial
@@ -148,6 +164,10 @@ bash scripts/train/chai-235b-adversarial-lr1e-6.sh \
 ```
 
 **Important:**
+- **CRITICAL**: Always switch verl branches before training (`cd verl && git checkout <branch> && cd ..`)
+  - Warmup training requires `warmup` branch
+  - Adversarial training requires `gad` branch
+  - The algorithm implementation differs between branches
 - Adversarial training uses a **different** `--exp_name` than warmup (e.g., `chai-3b-adversarial` vs `chai-3b-warmup`)
 - The warmup checkpoint is copied to a new directory before starting adversarial training
 - Adjust `--resume_step` to match your actual warmup completion step (check `/tmp/chai-*-warmup/` for latest checkpoint)
@@ -337,6 +357,9 @@ export HF_TOKEN=<your-hf-token>
 ```bash
 # List available warmup checkpoints
 ls -lh /tmp/chai-3b-warmup/global_step_*/
+
+# Switch to gad branch
+cd verl && git checkout gad && cd ..
 
 # Use the actual step number when preparing adversarial directory
 # Example: If last checkpoint is global_step_2150, use STEP=2150
