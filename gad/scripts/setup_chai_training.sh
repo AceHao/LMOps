@@ -69,29 +69,27 @@ echo ""
 # Step 3: Configure WANDB Environment
 echo "Step 3: Configure WANDB Environment"
 echo "------------------------------------"
+
+# Prompt for project name
 if [ -z "$WANDB_PROJECT" ]; then
     read -p "Enter WANDB project name: " WANDB_PROJECT
     export WANDB_PROJECT
-
-    # Save to bashrc for persistence
-    if ! grep -q "WANDB_PROJECT" ~/.bashrc 2>/dev/null; then
-        echo "export WANDB_PROJECT='${WANDB_PROJECT}'" >> ~/.bashrc
-    fi
 fi
 
+# Prompt for API key
 if [ -z "$WANDB_API_KEY" ]; then
-    # Try to extract API key from wandb status
-    WANDB_API_KEY=$(wandb status 2>/dev/null | grep -oP 'Logged in.*key: \K\w+' || echo "")
-    if [ -n "$WANDB_API_KEY" ]; then
-        export WANDB_API_KEY
-        if ! grep -q "WANDB_API_KEY" ~/.bashrc 2>/dev/null; then
-            echo "export WANDB_API_KEY='${WANDB_API_KEY}'" >> ~/.bashrc
-        fi
-    fi
+    echo ""
+    echo "Please paste your WANDB API key (same one you just used for 'wandb login'):"
+    echo "(Get it from: https://wandb.ai/authorize)"
+    read -p "WANDB API Key: " WANDB_API_KEY
+    export WANDB_API_KEY
 fi
 
 echo "✅ WANDB project: ${WANDB_PROJECT}"
-echo "✅ Environment variables configured"
+echo "✅ WANDB API key configured"
+echo ""
+echo "Note: These environment variables are set for this session only."
+echo "      You'll need to set them again in a new terminal session."
 echo ""
 
 # Step 4: Clone verl Repository
