@@ -135,7 +135,9 @@ if __name__ == '__main__':
 
     print('Writing to local disk')
     hf_path = os.path.join(local_dir, 'huggingface')
-    config = AutoConfig.from_pretrained(hf_path)
+    os.makedirs(hf_path, exist_ok=True)
+    # Load config from local_dir (where config.json exists), not huggingface subfolder
+    config = AutoConfig.from_pretrained(local_dir)
 
     if 'ForTokenClassification' in config.architectures[0]:
         auto_model = AutoModelForTokenClassification
@@ -154,6 +156,16 @@ if __name__ == '__main__':
     model.save_pretrained(hf_path, state_dict=state_dict)
     del state_dict
     del model
+
+    # Copy tokenizer and config files from local_dir to huggingface folder
+    import shutil
+    for filename in os.listdir(local_dir):
+        if filename.endswith('.json') or filename.endswith('.txt') or filename.endswith('.jinja'):
+            src = os.path.join(local_dir, filename)
+            dst = os.path.join(hf_path, filename)
+            if os.path.isfile(src) and not os.path.exists(dst):
+                shutil.copy2(src, dst)
+                print(f'Copied {filename} to {hf_path}')
     if args.hf_upload_path:
         # Push to hugging face
         from huggingface_hub import HfApi
