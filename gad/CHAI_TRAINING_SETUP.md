@@ -463,7 +463,85 @@ For more detailed information, see:
 2. **Generate sample outputs** using the trained checkpoints to assess quality
 3. **Compare checkpoints** from different training steps to find the best performing model
 4. **Continue training** if needed by resuming from any checkpoint
-5. **Export final model** for deployment
+5. **Export final model** for deployment (see section below)
+
+---
+
+## Export and Upload Model to HuggingFace
+
+After training completes, upload your trained model to HuggingFace Hub.
+
+### Checkpoint Structure
+
+Trained models are saved with FSDP sharding:
+```
+/tmp/{exp_name}/global_step_{step}/
+├── actor/                            # Student model (upload this)
+│   ├── model_world_size_8_rank_*.pt  # Sharded weights
+│   ├── config.json                   # Model config
+│   └── tokenizer.json                # Tokenizer
+├── critic/                           # Discriminator (don't upload)
+└── data.pt                           # Training state
+```
+
+### Step 1: Find Your Best Checkpoint
+
+```bash
+# Check latest checkpoint step
+cat /tmp/{exp_name}/latest_checkpointed_iteration.txt
+
+# List all checkpoints
+ls /tmp/{exp_name}/ | grep global_step
+```
+
+### Step 2: Merge and Upload
+
+The `tools/merge_model2hf.py` script merges FSDP shards and uploads in one command:
+
+```bash
+cd /tmp/LMOps/gad
+
+# Login to HuggingFace (one-time)
+huggingface-cli login
+
+# Merge sharded weights and upload
+python tools/merge_model2hf.py \
+    --local_dir /tmp/{exp_name}/global_step_{step}/actor \
+    --hf_upload_path {your_hf_username}/{model_name}
+```
+
+**Example for 7B model:**
+```bash
+python tools/merge_model2hf.py \
+    --local_dir /tmp/chai-7b-adversarial/global_step_6612/actor \
+    --hf_upload_path myusername/chai-7b-distilled
+```
+
+### Step 3: Verify Upload
+
+Test that your model loads correctly:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model = AutoModelForCausalLM.from_pretrained("your_username/model_name")
+tokenizer = AutoTokenizer.from_pretrained("your_username/model_name")
+
+inputs = tokenizer("Hello!", return_tensors="pt")
+outputs = model.generate(**inputs, max_new_tokens=50)
+print(tokenizer.decode(outputs[0]))
+```
+
+### Alternative: Merge Only (No Upload)
+
+To just convert to HuggingFace format without uploading:
+
+```bash
+python tools/merge_model2hf.py \
+    --local_dir /tmp/{exp_name}/global_step_{step}/actor
+```
+
+This creates `/tmp/{exp_name}/global_step_{step}/actor/huggingface/` with the merged model.
 
 ---
 

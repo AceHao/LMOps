@@ -70,7 +70,7 @@ export WANDB_API_KEY='YOUR_WANDB_API_KEY'
 export WANDB_MODE=disabled
 export WANDB_DISABLED=true
 
-if [ $OMPI_COMM_WORLD_RANK -eq 0 ]; then
+if [ "${OMPI_COMM_WORLD_RANK:-0}" -eq 0 ]; then
     for CKPT in "${CKPTS[@]}"; do
         echo "Starting processing checkpoint: $CKPT"
         
