@@ -99,8 +99,8 @@ if [ "${OMPI_COMM_WORLD_RANK:-0}" -eq 0 ]; then
         python3 -m verl.trainer.main_ppo \
             algorithm.adv_estimator=grpo \
             data.prompt_key=content \
-            data.train_files=/tmp/lmsys_gpt5_chat_4k_filtered_train.parquet \
-            data.val_files=/tmp/${VAL_DATA}_gpt5_chat_4k_filtered_test.parquet \
+            data.train_files=/tmp/lmsys_gpt5_chat_filtered_train.parquet \
+            data.val_files=/tmp/${VAL_DATA}_gpt5_chat_filtered_test.parquet \
             data.train_batch_size=256 \
             data.val_batch_size=600 \
             data.max_prompt_length=2048 \
