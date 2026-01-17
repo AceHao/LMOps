@@ -271,7 +271,7 @@ def run_evaluation(
     # Build lookup by query
     def get_query(item) -> Optional[str]:
         # Try multiple possible keys for the query
-        for key in [query_key, "prompt", "query", "question", "content"]:
+        for key in [query_key, "prompt", "query", "question", "content", "input"]:
             if key in item:
                 value = item[key]
                 # Handle numpy arrays
@@ -286,9 +286,14 @@ def run_evaluation(
                 return str(value)
         return None
 
-    def get_response(item) -> Optional[str]:
+    def get_response(item, is_teacher: bool = False) -> Optional[str]:
         # Try multiple possible keys for the response
-        for key in [response_key, "response", "output", "answer", "completion", "teacher_response"]:
+        # For teacher, prioritize teacher-specific keys
+        if is_teacher:
+            keys_to_try = ["teacher_response", "teacher_output", response_key, "response", "output", "answer", "completion"]
+        else:
+            keys_to_try = [response_key, "response", "output", "answer", "completion"]
+        for key in keys_to_try:
             if key in item:
                 value = item[key]
                 # Handle numpy arrays
@@ -303,7 +308,14 @@ def run_evaluation(
     for r in teacher_results:
         q = get_query(r)
         if q is not None:
-            teacher_by_query[q] = get_response(r)
+            teacher_by_query[q] = get_response(r, is_teacher=True)
+
+    # Debug: show sample queries from both sources
+    if student_results and teacher_by_query:
+        sample_student_query = get_query(student_results[0])
+        sample_teacher_query = next(iter(teacher_by_query.keys()), None)
+        print(f"  Sample student query (first 100 chars): {repr(sample_student_query[:100] if sample_student_query else None)}")
+        print(f"  Sample teacher query (first 100 chars): {repr(sample_teacher_query[:100] if sample_teacher_query else None)}")
 
     # Build pairs
     pairs = []
@@ -311,7 +323,7 @@ def run_evaluation(
     for student in student_results:
         query = get_query(student)
         if query is not None and query in teacher_by_query:
-            student_response = get_response(student)
+            student_response = get_response(student, is_teacher=False)
             teacher_response = teacher_by_query[query]
             # Skip pairs where either response is missing
             if student_response is None or teacher_response is None:
