@@ -4,10 +4,10 @@
 #
 # Model Size: 14B parameters
 # Hardware: 8x B200 GPUs (192GB HBM3e each, 8TB/s bandwidth)
-# Optimized settings leveraging B200's 2.4x memory vs H100:
-# - tensor_model_parallel_size=2 (reduced from 4, more data parallelism)
-# - ppo_max_token_len_per_gpu=16384 (increased from 8192)
-# - gpu_memory_utilization=0.8 (conservative for stability)
+# Optimized settings:
+# - tensor_model_parallel_size=4 (14B needs TP=4 to fit)
+# - ppo_max_token_len_per_gpu=12288 (matching 7B settings)
+# - gpu_memory_utilization=0.7 (matching 7B settings)
 # - train_batch_size=256, val_batch_size=600 (matching 7B settings)
 #
 
@@ -78,7 +78,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
-    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=16384 \
+    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=12288 \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.entropy_coeff=0.0 \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
@@ -87,16 +87,16 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.temperature=0.8 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=False \
     critic.model.path=$reward_model_path \
     critic.optim.lr=1e-6 \
     critic.model.use_remove_padding=True \
-    critic.ppo_max_token_len_per_gpu=16384 \
+    critic.ppo_max_token_len_per_gpu=12288 \
     critic.grad_clip=0.2 \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.val_before_train=True \
@@ -106,8 +106,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name=${EXP_NAME} \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=${NNODES} \
-    trainer.save_freq=50 \
-    trainer.test_freq=50 \
+    trainer.save_freq=100 \
+    trainer.test_freq=100 \
     trainer.default_hdfs_dir=null \
     trainer.total_epochs=4 "${@:1}" \
     actor_rollout_ref.rollout.enforce_eager=False \
