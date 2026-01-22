@@ -1,18 +1,17 @@
 #!/bin/bash
 #
-# GAD Warmup Training Script for 235B Models (Qwen 235B)
+# GAD Warmup Training Script for 235B Models - SINGLE NODE (8 B200 GPUs)
 #
-# Model Size: 235B parameters
-# Key differences from other sizes:
-# - tensor_model_parallel_size=8 (maximum parallelism across 8 GPUs)
-# - ppo_max_token_len_per_gpu=4096 (very constrained memory)
-# - gpu_memory_utilization=0.9 (maximize memory usage)
-# - train_batch_size=64, val_batch_size=150 (minimal for memory)
+# Usage: bash scripts/train/chai-235b-warmup-1node.sh \
+#          --model /path/to/qwen3-235b \
+#          --reward_model /path/to/reward-model \
+#          --exp_name qwen3-235b-warmup-1n-0122
 #
 
 set -x
 
 export NCCL_TIMEOUT=36000
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --model)
@@ -27,10 +26,6 @@ while [[ $# -gt 0 ]]; do
             EXP_NAME="$2"
             shift 2
             ;;
-        --nnodes)
-            NNODES="$2"
-            shift 2
-            ;;
         *)
             break
             ;;
@@ -38,26 +33,33 @@ while [[ $# -gt 0 ]]; do
 done
 
 export WANDB_INIT_TIMEOUT=600
-
 export TOKENIZERS_PARALLELISM=true
-# Use environment variables if set, otherwise use defaults
-export WANDB_PROJECT="${WANDB_PROJECT:-YOUR_PROJECT_NAME}"
-export WANDB_API_KEY="${WANDB_API_KEY:-YOUR_WANDB_API_KEY}"
+export WANDB_PROJECT="gad-replication-qwen3-235b-opus"
+export WANDB_API_KEY="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"
 
 export HYDRA_FULL_ERROR=1
 
-# Get the directory where this script is located and construct data path
+# Single-node batch sizes (1 node = 8 GPUs)
+# Minimum for testing: 8 (with rollout.n=8, gives 64 total samples = 8 per GPU)
+TRAIN_BATCH_SIZE=8
+VAL_BATCH_SIZE=8
+MINI_BATCH_SIZE=8
+
+# Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GAD_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Data and checkpoint directories (local paths)
 DATA_DIR="${GAD_DIR}/chai_opus_data"
+CHECKPOINT_DIR="/tmp"
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.prompt_key=content \
     data.train_files=${DATA_DIR}/transformed_chai_train.parquet \
     data.val_files=${DATA_DIR}/transformed_chai_val.parquet \
-    data.train_batch_size=64 \
-    data.val_batch_size=150 \
+    data.train_batch_size=${TRAIN_BATCH_SIZE} \
+    data.val_batch_size=${VAL_BATCH_SIZE} \
     data.max_prompt_length=2048 \
     data.max_response_length=1536 \
     data.truncation=right \
@@ -65,7 +67,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.grad_clip=0.2 \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.ppo_mini_batch_size=64 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=${MINI_BATCH_SIZE} \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=4096 \
     actor_rollout_ref.actor.use_kl_loss=True \
@@ -94,11 +96,11 @@ python3 -m verl.trainer.main_ppo \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${EXP_NAME} \
     trainer.n_gpus_per_node=8 \
-    trainer.nnodes=${NNODES} \
-    trainer.save_freq=50 \
-    trainer.test_freq=50 \
+    trainer.nnodes=1 \
+    trainer.save_freq=10 \
+    trainer.test_freq=10 \
     trainer.default_hdfs_dir=null \
     trainer.total_epochs=2 "${@:1}" \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \
-    trainer.default_local_dir=/tmp/${EXP_NAME}
+    trainer.default_local_dir=${CHECKPOINT_DIR}/${EXP_NAME}
