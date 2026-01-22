@@ -47,10 +47,10 @@ export WANDB_API_KEY="wandb_v1_VnbmMX3c347Fv743PNAGVbbWQXS_gvrTFMJrV8QOk6OHEJFkE
 
 export HYDRA_FULL_ERROR=1
 
-# Get the directory where this script is located and construct data path
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GAD_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DATA_DIR="${GAD_DIR}/chai_opus_data"
+# Volume-based paths for data and checkpoints
+VOL_ROOT="/tmp/gad-replication-vol"
+DATA_DIR="${VOL_ROOT}/data/chai_opus_data"
+CKPT_DIR="${VOL_ROOT}/checkpoints/${EXP_NAME}"
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -102,4 +102,4 @@ python3 -m verl.trainer.main_ppo \
     trainer.total_epochs=2 "${@:1}" \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \
-    trainer.default_local_dir=/tmp/${EXP_NAME}
+    trainer.default_local_dir=${CKPT_DIR}

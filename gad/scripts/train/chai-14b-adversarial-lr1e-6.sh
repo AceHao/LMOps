@@ -43,24 +43,24 @@ export WANDB_API_KEY="wandb_v1_VnbmMX3c347Fv743PNAGVbbWQXS_gvrTFMJrV8QOk6OHEJFkE
 
 export HYDRA_FULL_ERROR=1
 
-model_path="/tmp/${EXP_NAME}/global_step_${RESUME_STEP}/actor/huggingface"
-mkdir -p /tmp/${EXP_NAME}/global_step_${RESUME_STEP}/actor/huggingface/
-find /tmp/${EXP_NAME}/global_step_${RESUME_STEP}/actor/ -maxdepth 1 -type f ! -name "*.pt" -exec cp {} /tmp/${EXP_NAME}/global_step_${RESUME_STEP}/actor/huggingface/ \;
-python tools/merge_model2hf.py --local_dir /tmp/${EXP_NAME}/global_step_${RESUME_STEP}/actor
-echo "Files in /tmp/$EXP_NAME/global_step_$RESUME_STEP/actor/huggingface:"
-ls /tmp/$EXP_NAME/global_step_$RESUME_STEP/actor/huggingface
+# Volume-based paths for data and checkpoints
+VOL_ROOT="/tmp/gad-replication-vol"
+DATA_DIR="${VOL_ROOT}/data/chai_opus_data"
+CKPT_DIR="${VOL_ROOT}/checkpoints/${EXP_NAME}"
 
-reward_model_path="/tmp/${EXP_NAME}/global_step_${RESUME_STEP}/critic/huggingface"
-mkdir -p /tmp/${EXP_NAME}/global_step_${RESUME_STEP}/critic/huggingface/
-find /tmp/${EXP_NAME}/global_step_${RESUME_STEP}/critic/ -maxdepth 1 -type f ! -name "*.pt" -exec cp {} /tmp/${EXP_NAME}/global_step_${RESUME_STEP}/critic/huggingface/ \;
-python tools/merge_model2hf.py --local_dir /tmp/${EXP_NAME}/global_step_${RESUME_STEP}/critic
-echo "Files in /tmp/$EXP_NAME/global_step_$RESUME_STEP/critic/huggingface:"
-ls /tmp/$EXP_NAME/global_step_$RESUME_STEP/critic/huggingface
+model_path="${CKPT_DIR}/global_step_${RESUME_STEP}/actor/huggingface"
+mkdir -p ${CKPT_DIR}/global_step_${RESUME_STEP}/actor/huggingface/
+find ${CKPT_DIR}/global_step_${RESUME_STEP}/actor/ -maxdepth 1 -type f ! -name "*.pt" -exec cp {} ${CKPT_DIR}/global_step_${RESUME_STEP}/actor/huggingface/ \;
+python tools/merge_model2hf.py --local_dir ${CKPT_DIR}/global_step_${RESUME_STEP}/actor
+echo "Files in ${CKPT_DIR}/global_step_${RESUME_STEP}/actor/huggingface:"
+ls ${CKPT_DIR}/global_step_${RESUME_STEP}/actor/huggingface
 
-# Get the directory where this script is located and construct data path
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GAD_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DATA_DIR="${GAD_DIR}/chai_opus_data"
+reward_model_path="${CKPT_DIR}/global_step_${RESUME_STEP}/critic/huggingface"
+mkdir -p ${CKPT_DIR}/global_step_${RESUME_STEP}/critic/huggingface/
+find ${CKPT_DIR}/global_step_${RESUME_STEP}/critic/ -maxdepth 1 -type f ! -name "*.pt" -exec cp {} ${CKPT_DIR}/global_step_${RESUME_STEP}/critic/huggingface/ \;
+python tools/merge_model2hf.py --local_dir ${CKPT_DIR}/global_step_${RESUME_STEP}/critic
+echo "Files in ${CKPT_DIR}/global_step_${RESUME_STEP}/critic/huggingface:"
+ls ${CKPT_DIR}/global_step_${RESUME_STEP}/critic/huggingface
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -106,10 +106,10 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name=${EXP_NAME} \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=${NNODES} \
-    trainer.save_freq=100 \
-    trainer.test_freq=100 \
+    trainer.save_freq=200 \
+    trainer.test_freq=200 \
     trainer.default_hdfs_dir=null \
     trainer.total_epochs=4 "${@:1}" \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \
-    trainer.default_local_dir=/tmp/${EXP_NAME}
+    trainer.default_local_dir=${CKPT_DIR}
