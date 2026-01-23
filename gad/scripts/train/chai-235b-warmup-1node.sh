@@ -11,6 +11,7 @@
 set -x
 
 export NCCL_TIMEOUT=36000
+export RAY_memory_usage_threshold=0.98
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -40,9 +41,8 @@ export WANDB_API_KEY="wandb_v1_VnbmMX3c347Fv743PNAGVbbWQXS_gvrTFMJrV8QOk6OHEJFkE
 export HYDRA_FULL_ERROR=1
 
 # Single-node batch sizes (1 node = 8 GPUs)
-# Minimum for testing: 8 (with rollout.n=8, gives 64 total samples = 8 per GPU)
-TRAIN_BATCH_SIZE=8
-VAL_BATCH_SIZE=8
+TRAIN_BATCH_SIZE=1
+VAL_BATCH_SIZE=1
 MINI_BATCH_SIZE=8
 
 # Get the directory where this script is located
@@ -76,6 +76,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=1 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.actor.fsdp_config.model_dtype=bf16 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.tensor_model_parallel_size=8 \
@@ -85,6 +86,9 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=False \
     critic.model.path=$REWARD_MODEL_PATH \
+    critic.model.fsdp_config.model_dtype=bf16 \
+    critic.model.fsdp_config.param_offload=False \
+    critic.model.fsdp_config.optimizer_offload=False \
     critic.optim.lr=1e-6 \
     critic.model.use_remove_padding=True \
     critic.ppo_max_token_len_per_gpu=4096 \
