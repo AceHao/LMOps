@@ -95,7 +95,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=8 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.temperature=0.8 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.35 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.2 \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.max_num_seqs=256 \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.max_num_seqs=256 \
