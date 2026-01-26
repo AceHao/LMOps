@@ -50,7 +50,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GAD_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Workspace root (parent of LMOps)
-WORKSPACE_DIR="$(cd "$GAD_DIR/../../.." && pwd)"
+WORKSPACE_DIR="$(cd "$GAD_DIR/../.." && pwd)"
 
 # Data and checkpoint directories
 DATA_DIR="${GAD_DIR}/chai_opus_data"
