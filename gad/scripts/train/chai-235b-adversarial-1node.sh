@@ -47,9 +47,12 @@ MINI_BATCH_SIZE=8
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GAD_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Data and checkpoint directories (local paths)
+# Workspace root (parent of LMOps)
+WORKSPACE_DIR="$(cd "$GAD_DIR/../../.." && pwd)"
+
+# Data and checkpoint directories
 DATA_DIR="${GAD_DIR}/chai_opus_data"
-CHECKPOINT_DIR="/tmp"
+CHECKPOINT_DIR="${WORKSPACE_DIR}/checkpoints"
 
 # Model paths from warmup checkpoint
 model_path="${CHECKPOINT_DIR}/${EXP_NAME}/global_step_${RESUME_STEP}/actor/huggingface"
@@ -95,7 +98,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=8 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.temperature=0.8 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.2 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.1 \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.max_num_seqs=256 \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.max_num_seqs=256 \
