@@ -77,8 +77,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.use_torch_compile=False \
     +actor_rollout_ref.actor.fsdp_config.model_dtype=bf16 \
-    \
-    # --- OFFLOAD: KEEPING ENABLED AS REQUESTED ---
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     +actor_rollout_ref.actor.fsdp_config.grad_offload=True \
@@ -86,12 +84,9 @@ python3 -m verl.trainer.main_ppo \
     critic.model.fsdp_config.param_offload=True \
     critic.model.fsdp_config.optimizer_offload=True \
     +critic.model.fsdp_config.grad_offload=True \
-    \
     actor_rollout_ref.model.lora_rank=64 \
     actor_rollout_ref.model.lora_alpha=32 \
     actor_rollout_ref.model.target_modules=all-linear \
-    \
-    # --- ROLLOUT: Keep TP=8 (Local to Node) ---
     actor_rollout_ref.rollout.tensor_model_parallel_size=8 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.temperature=0.8 \
@@ -102,7 +97,6 @@ python3 -m verl.trainer.main_ppo \
     ++actor_rollout_ref.actor.strategy=fsdp \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.max_num_seqs=16 \
     +actor_rollout_ref.rollout.kv_cache_dtype=fp8 \
-    \
     critic.model.path=$REWARD_MODEL_PATH \
     +critic.model.fsdp_config.model_dtype=bf16 \
     critic.model.lora_rank=64 \
@@ -120,11 +114,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger=['console','wandb'] \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${EXP_NAME} \
-    \
-    # --- MULTI NODE SETTINGS ---
     trainer.n_gpus_per_node=$GPUS_PER_NODE \
     trainer.nnodes=$NNODES \
-    \
     trainer.save_freq=10 \
     trainer.test_freq=10 \
     trainer.default_hdfs_dir=null \

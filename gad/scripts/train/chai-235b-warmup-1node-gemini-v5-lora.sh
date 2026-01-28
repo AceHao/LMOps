@@ -53,7 +53,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=2048 \
     data.max_response_length=1536 \
     data.truncation=right \
-    actor_rollout_ref.model.path=$MODEL_PATH  \
+    actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-4 \
     actor_rollout_ref.actor.grad_clip=0.2 \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -84,7 +84,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.dtype=bfloat16 \
     ++actor_rollout_ref.actor.strategy=fsdp \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.max_num_seqs=16 \
-    +actor_rollout_ref.rollout.engine_kwargs.vllm.enforce_eager=True \
     +actor_rollout_ref.rollout.kv_cache_dtype=fp8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     critic.model.path=$REWARD_MODEL_PATH \

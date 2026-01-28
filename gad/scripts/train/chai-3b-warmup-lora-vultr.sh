@@ -116,6 +116,6 @@ python3 -m verl.trainer.main_ppo \
     trainer.test_freq=200 \
     trainer.default_hdfs_dir=null \
     trainer.total_epochs=2 "${@:1}" \
-    actor_rollout_ref.rollout.enforce_eager=False \
+    actor_rollout_ref.rollout.enforce_eager=True \
     actor_rollout_ref.rollout.free_cache_engine=False \
     trainer.default_local_dir=${CHECKPOINT_DIR}/${EXP_NAME}
