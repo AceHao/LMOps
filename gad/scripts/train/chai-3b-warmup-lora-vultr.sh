@@ -39,7 +39,7 @@ done
 
 export WANDB_INIT_TIMEOUT=600
 export TOKENIZERS_PARALLELISM=true
-export WANDB_PROJECT="${WANDB_PROJECT:-GAD_Replication_3B}"
+export WANDB_PROJECT="gad-replication-b100-chai"
 export WANDB_API_KEY="${WANDB_API_KEY:-YOUR_WANDB_API_KEY}"
 export HYDRA_FULL_ERROR=1
 
@@ -51,8 +51,8 @@ DATA_DIR="${GAD_DIR}/chai_opus_data"
 CHECKPOINT_DIR="${WORKSPACE_DIR}/checkpoints"
 
 # Defaults
-MODEL_PATH="${MODEL_PATH:-${WORKSPACE_DIR}/models/Qwen2.5-3B}"
-REWARD_MODEL_PATH="${REWARD_MODEL_PATH:-${WORKSPACE_DIR}/models/Qwen2.5-3B-Reward}"
+MODEL_PATH="${MODEL_PATH:-${WORKSPACE_DIR}/models/Qwen2.5-3B-Instruct}"
+REWARD_MODEL_PATH="${REWARD_MODEL_PATH:-${WORKSPACE_DIR}/models/Qwen2.5-3B-Instruct}"
 
 # --- B200 Tuning ---
 # TP=1: 3B fits in one GPU. Enables DP=8 (Fastest).
@@ -72,7 +72,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_response_length=1536 \
     data.truncation=right \
     actor_rollout_ref.model.path=$MODEL_PATH \
-    actor_rollout_ref.actor.optim.lr=1e-5 \ 
+    actor_rollout_ref.actor.optim.lr=1e-5 \
     actor_rollout_ref.actor.grad_clip=1.0 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=${MINI_BATCH_SIZE} \
@@ -111,7 +111,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${EXP_NAME} \
     trainer.n_gpus_per_node=8 \
-    trainer.nnodes=${NNODES} \
+    trainer.nnodes=1 \
     trainer.save_freq=200 \
     trainer.test_freq=200 \
     trainer.default_hdfs_dir=null \
