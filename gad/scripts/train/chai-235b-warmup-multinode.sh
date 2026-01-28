@@ -2,6 +2,8 @@
 # GAD Replication - Qwen3-235B - 2 Node Setup
 set -x
 
+export GLOO_SOCKET_IFNAME=eth0
+export NCCL_SOCKET_IFNAME=eth0
 export NCCL_TIMEOUT=36000
 export RAY_memory_usage_threshold=0.98
 export TORCH_COMPILE_DISABLE=1
