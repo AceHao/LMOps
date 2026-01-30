@@ -57,15 +57,15 @@ REWARD_MODEL_PATH="${REWARD_MODEL_PATH:-${WORKSPACE_DIR}/models/Qwen2.5-3B-Instr
 # --- B200 Tuning ---
 # TP=1: 3B fits in one GPU. Enables DP=8 (Fastest).
 # Batch=2048: Saturates B200 HBM/Compute.
-TRAIN_BATCH_SIZE=2048
+TRAIN_BATCH_SIZE=512
 VAL_BATCH_SIZE=1024
-MINI_BATCH_SIZE=512
+MINI_BATCH_SIZE=256
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.prompt_key=content \
-    data.train_files=${DATA_DIR}/transformed_chai_train.parquet \
-    data.val_files=${DATA_DIR}/transformed_chai_val.parquet \
+    data.train_files=${DATA_DIR}/5pct/train.parquet \
+    data.val_files=${DATA_DIR}/5pct/val.parquet \
     data.train_batch_size=${TRAIN_BATCH_SIZE} \
     data.val_batch_size=${VAL_BATCH_SIZE} \
     data.max_prompt_length=2048 \
@@ -92,7 +92,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.temperature=0.8 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
     actor_rollout_ref.rollout.n=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=False \
     critic.model.path=$REWARD_MODEL_PATH \
@@ -112,10 +112,10 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name=${EXP_NAME} \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.save_freq=200 \
-    trainer.test_freq=200 \
+    trainer.save_freq=10 \
+    trainer.test_freq=10 \
     trainer.default_hdfs_dir=null \
-    trainer.total_epochs=2 "${@:1}" \
+    trainer.total_epochs=1 "${@:1}" \
     actor_rollout_ref.rollout.enforce_eager=True \
     actor_rollout_ref.rollout.free_cache_engine=False \
     trainer.default_local_dir=${CHECKPOINT_DIR}/${EXP_NAME}
