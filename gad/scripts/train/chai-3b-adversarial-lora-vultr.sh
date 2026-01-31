@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# GAD Warmup Training Script - Qwen2.5-3B (LoRA)
+# GAD Adversarial Training Script - Qwen2.5-3B (LoRA)
 #
 # Hardware: 1 Node x 8 NVIDIA B200
 # Settings: LoRA Enabled, TP=1 (Data Parallelism), No Offload
@@ -15,20 +15,16 @@ export NCCL_TIMEOUT=36000
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --model)
-            MODEL_PATH="$2"
-            shift 2
-            ;;
-        --reward_model)
-            REWARD_MODEL_PATH="$2"
-            shift 2
-            ;;
         --exp_name)
             EXP_NAME="$2"
             shift 2
             ;;
         --nnodes)
             NNODES="$2"
+            shift 2
+            ;;
+        --resume_step)
+            RESUME_STEP="$2"
             shift 2
             ;;
         *)
@@ -48,10 +44,22 @@ GAD_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORKSPACE_DIR="$(cd "$GAD_DIR/../.." && pwd)"
 DATA_DIR="${GAD_DIR}/chai_opus_data"
 CHECKPOINT_DIR="${WORKSPACE_DIR}/checkpoints"
+CKPT_DIR="${CHECKPOINT_DIR}/${EXP_NAME}"
 
-# Defaults
-MODEL_PATH="${MODEL_PATH:-${WORKSPACE_DIR}/models/Qwen2.5-3B-Instruct}"
-REWARD_MODEL_PATH="${REWARD_MODEL_PATH:-${WORKSPACE_DIR}/models/Qwen2.5-3B-Instruct}"
+# --- Merge checkpoint models to HuggingFace format ---
+model_path="${CKPT_DIR}/global_step_${RESUME_STEP}/actor/huggingface"
+mkdir -p ${CKPT_DIR}/global_step_${RESUME_STEP}/actor/huggingface/
+find ${CKPT_DIR}/global_step_${RESUME_STEP}/actor/ -maxdepth 1 -type f ! -name "*.pt" -exec cp {} ${CKPT_DIR}/global_step_${RESUME_STEP}/actor/huggingface/ \;
+python tools/merge_model2hf.py --local_dir ${CKPT_DIR}/global_step_${RESUME_STEP}/actor
+echo "Files in ${CKPT_DIR}/global_step_${RESUME_STEP}/actor/huggingface:"
+ls ${CKPT_DIR}/global_step_${RESUME_STEP}/actor/huggingface
+
+reward_model_path="${CKPT_DIR}/global_step_${RESUME_STEP}/critic/huggingface"
+mkdir -p ${CKPT_DIR}/global_step_${RESUME_STEP}/critic/huggingface/
+find ${CKPT_DIR}/global_step_${RESUME_STEP}/critic/ -maxdepth 1 -type f ! -name "*.pt" -exec cp {} ${CKPT_DIR}/global_step_${RESUME_STEP}/critic/huggingface/ \;
+python tools/merge_model2hf.py --local_dir ${CKPT_DIR}/global_step_${RESUME_STEP}/critic
+echo "Files in ${CKPT_DIR}/global_step_${RESUME_STEP}/critic/huggingface:"
+ls ${CKPT_DIR}/global_step_${RESUME_STEP}/critic/huggingface
 
 # --- B200 Tuning ---
 # TP=1: 3B fits in one GPU. Enables DP=8 (Fastest).
@@ -70,7 +78,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=2048 \
     data.max_response_length=1536 \
     data.truncation=right \
-    actor_rollout_ref.model.path=$MODEL_PATH \
+    actor_rollout_ref.model.path=$model_path \
     actor_rollout_ref.actor.optim.lr=1e-5 \
     actor_rollout_ref.actor.grad_clip=1.0 \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -94,7 +102,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
     actor_rollout_ref.rollout.n=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=False \
-    critic.model.path=$REWARD_MODEL_PATH \
+    critic.model.path=$reward_model_path \
     critic.model.use_remove_padding=True \
     critic.model.enable_gradient_checkpointing=True \
     critic.model.lora_rank=64 \
@@ -105,7 +113,7 @@ python3 -m verl.trainer.main_ppo \
     critic.grad_clip=1.0 \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.val_before_train=True \
-    trainer.critic_warmup=10 \
+    trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${EXP_NAME} \
@@ -114,7 +122,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=15 \
     trainer.test_freq=15 \
     trainer.default_hdfs_dir=null \
-    trainer.total_epochs=1 "${@:1}" \
+    trainer.total_epochs=3 "${@:1}" \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \
-    trainer.default_local_dir=${CHECKPOINT_DIR}/${EXP_NAME}
+    trainer.default_local_dir=${CKPT_DIR}
