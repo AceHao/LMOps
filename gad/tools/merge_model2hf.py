@@ -11,15 +11,31 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Merge FSDP checkpoints (with or without LoRA) to HuggingFace format.
+
+Usage:
+    python merge_model2hf.py --local_dir /path/to/checkpoint/actor
+    python merge_model2hf.py --local_dir /path/to/checkpoint/actor --hf_upload_path username/model --private
+
+The script auto-detects if LoRA was used and merges accordingly.
+"""
 
 from typing import List, Tuple, Dict
 import re
 import os
+import shutil
 import torch
 import argparse
 from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
 from concurrent.futures import ThreadPoolExecutor
-from torch.distributed._tensor import DTensor, Shard, Placement
+
+try:
+    from torch.distributed.tensor import DTensor
+except ImportError:
+    from torch.distributed._tensor import DTensor
+
+from torch.distributed._tensor import Shard, Placement
 
 
 def merge_by_placement(tensors: List[torch.Tensor], placement: Placement):
@@ -33,110 +49,197 @@ def merge_by_placement(tensors: List[torch.Tensor], placement: Placement):
         raise ValueError(f"Unsupported placement: {placement}")
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--local_dir', required=True, type=str, help="The path for your saved model")
-    parser.add_argument("--hf_upload_path", default=False, type=str, help="The path of the huggingface repo to upload")
-    parser.add_argument("--private", action="store_true", help="Upload as a private repository")
-    args = parser.parse_args()
+def has_lora_adapter(local_dir: str) -> bool:
+    """Check if checkpoint has a lora_adapter folder."""
+    lora_path = os.path.join(local_dir, "lora_adapter", "adapter_config.json")
+    return os.path.exists(lora_path)
 
-    assert not args.local_dir.endswith("huggingface"), "The local_dir should not end with huggingface"
-    local_dir = args.local_dir
 
-    # copy rank zero to find the shape of (dp, fsdp)
-    rank = 0
+def clean_state_dict_keys(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    """Remove PEFT wrapper prefixes from state dict keys."""
+    cleaned = {}
+    for key, value in state_dict.items():
+        # Skip LoRA weights - they will be merged separately
+        if "lora_A" in key or "lora_B" in key:
+            continue
+
+        new_key = key
+        # Remove PEFT wrapper prefix: base_model.model.X -> X
+        if new_key.startswith("base_model.model."):
+            new_key = new_key[len("base_model.model."):]
+        # Handle base_layer wrapper: X.base_layer.weight -> X.weight
+        new_key = new_key.replace(".base_layer.weight", ".weight")
+        new_key = new_key.replace(".base_layer.bias", ".bias")
+
+        cleaned[new_key] = value
+    return cleaned
+
+
+def merge_fsdp_shards(local_dir: str) -> Dict[str, torch.Tensor]:
+    """Merge FSDP sharded checkpoint into a single state dict."""
+    # Find world size
     world_size = 0
     for filename in os.listdir(local_dir):
         match = re.match(r"model_world_size_(\d+)_rank_0\.pt", filename)
         if match:
-            world_size = match.group(1)  
-            break  
+            world_size = int(match.group(1))
+            break
     assert world_size, "No model file with the proper format"
-        
-    state_dict = torch.load(os.path.join(local_dir, f'model_world_size_{world_size}_rank_{rank}.pt'), map_location='cpu')
+
+    print(f"Loading FSDP checkpoint with world_size={world_size}")
+
+    state_dict = torch.load(os.path.join(local_dir, f'model_world_size_{world_size}_rank_0.pt'),
+                           map_location='cpu', weights_only=False)
     pivot_key = sorted(list(state_dict.keys()))[0]
     weight = state_dict[pivot_key]
-    assert isinstance(weight, torch.distributed._tensor.DTensor)
-    # get sharding info
-    device_mesh = weight.device_mesh
-    mesh = device_mesh.mesh
-    mesh_dim_names = device_mesh.mesh_dim_names
 
-    print(f'Got device mesh {mesh}, mesh_dim_names {mesh_dim_names}')
-
-    assert mesh_dim_names in (
-        ('fsdp',),
-    ), f'Unsupported mesh_dim_names {mesh_dim_names}'
-
-    if 'tp' in mesh_dim_names:
-        # fsdp * tp
-        total_shards = mesh.shape[-1] * mesh.shape[-2]
-        mesh_shape = (mesh.shape[-2], mesh.shape[-1])
+    if isinstance(weight, DTensor):
+        mesh_dim_names = weight.device_mesh.mesh_dim_names
+        mesh = weight.device_mesh.mesh
+        if 'tp' in mesh_dim_names:
+            total_shards = mesh.shape[-1] * mesh.shape[-2]
+            mesh_shape = (mesh.shape[-2], mesh.shape[-1])
+        else:
+            total_shards = mesh.shape[-1]
+            mesh_shape = (mesh.shape[-1],)
     else:
-        # fsdp
-        total_shards = mesh.shape[-1]
-        mesh_shape = (mesh.shape[-1],)
+        mesh_dim_names = ('fsdp',)
+        total_shards = world_size
+        mesh_shape = (world_size,)
 
-    print(f'Processing model shards with {total_shards} {mesh_shape} in total')
+    print(f'Processing {total_shards} shards with mesh_shape={mesh_shape}')
 
-    model_state_dict_lst = []
-    model_state_dict_lst.append(state_dict)
-    model_state_dict_lst.extend([""] * (total_shards - 1))
+    # Load all shards
+    model_state_dict_lst = [state_dict]
+    model_state_dict_lst.extend([None] * (total_shards - 1))
 
-    def process_one_shard(rank):
-        model_path = os.path.join(local_dir, f'model_world_size_{world_size}_rank_{rank}.pt')
-        state_dict = torch.load(model_path, map_location='cpu', weights_only=False)
-        model_state_dict_lst[rank] = state_dict
-        return state_dict
+    def load_shard(rank):
+        path = os.path.join(local_dir, f'model_world_size_{world_size}_rank_{rank}.pt')
+        model_state_dict_lst[rank] = torch.load(path, map_location='cpu', weights_only=False)
 
     with ThreadPoolExecutor(max_workers=min(32, os.cpu_count())) as executor:
-        for rank in range(1, total_shards):
-            executor.submit(process_one_shard, rank)
-    state_dict = {}
+        futures = [executor.submit(load_shard, rank) for rank in range(1, total_shards)]
+        for future in futures:
+            future.result()
+
+    # Merge shards
+    merged = {}
     param_placements: Dict[str, List[Placement]] = {}
-    keys = set(model_state_dict_lst[0].keys())
-    for key in keys:
-        state_dict[key] = []
-        for model_state_dict in model_state_dict_lst:
-            try:
-                tensor = model_state_dict.pop(key)
-            except:
-                print("-"*30)
-                print(model_state_dict)
+
+    for key in set(model_state_dict_lst[0].keys()):
+        merged[key] = []
+        for shard_dict in model_state_dict_lst:
+            tensor = shard_dict.pop(key)
             if isinstance(tensor, DTensor):
-                state_dict[key].append(tensor._local_tensor.bfloat16())
+                merged[key].append(tensor._local_tensor.bfloat16())
                 placements = tuple(tensor.placements)
-                # replicated placement at dp dimension can be discarded
-                if mesh_dim_names[0] == 'dp':
+                if mesh_dim_names[0] in ('dp', 'ddp'):
                     placements = placements[1:]
                 if key not in param_placements:
                     param_placements[key] = placements
-                else:
-                    assert param_placements[key] == placements
             else:
-                state_dict[key] = tensor.bfloat16()
+                merged[key] = tensor.bfloat16()
 
     del model_state_dict_lst
 
-    for key in sorted(state_dict):
-        if not isinstance(state_dict[key], list):
-            print(f"No need to merge key {key}")
+    # Merge by placement
+    for key in sorted(merged):
+        if not isinstance(merged[key], list):
             continue
-        # merge shards
-        placements: Tuple[Shard] = param_placements[key]
-        if len(mesh_shape) == 1:
-            # 1-D list, FSDP without TP
-            assert len(placements) == 1
-            shards = state_dict[key]
-            state_dict[key] = merge_by_placement(shards, placements[0])
+        if key in param_placements:
+            placements = param_placements[key]
+            if len(mesh_shape) == 1:
+                merged[key] = merge_by_placement(merged[key], placements[0])
+            else:
+                raise NotImplementedError("FSDP + TP is not supported yet")
         else:
-            # 2-D list, FSDP + TP
-            raise NotImplementedError("FSDP + TP is not supported yet")
+            merged[key] = torch.cat(merged[key], dim=0)
 
+    return merged
+
+
+def apply_lora_to_state_dict(base_state_dict: Dict[str, torch.Tensor],
+                              lora_adapter_path: str) -> Dict[str, torch.Tensor]:
+    """Apply LoRA weights to base model state dict."""
+    import json
+    from safetensors.torch import load_file
+
+    print(f"Loading LoRA adapter from {lora_adapter_path}")
+
+    # Load LoRA config
+    with open(os.path.join(lora_adapter_path, "adapter_config.json"), 'r') as f:
+        lora_config = json.load(f)
+
+    lora_alpha = lora_config.get("lora_alpha", 1)
+    lora_r = lora_config.get("r", 1)
+    scaling = lora_alpha / lora_r
+
+    print(f"LoRA config: r={lora_r}, alpha={lora_alpha}, scaling={scaling}")
+
+    # Load LoRA weights
+    lora_weights = load_file(os.path.join(lora_adapter_path, "adapter_model.safetensors"))
+
+    # Group lora_A and lora_B by their target layer
+    lora_pairs = {}
+    for key, value in lora_weights.items():
+        # Key format: base_model.model.model.layers.0.self_attn.q_proj.lora_A.weight
+        if "lora_A" in key:
+            base_key = key.replace(".lora_A.weight", "").replace("base_model.model.", "")
+            if base_key not in lora_pairs:
+                lora_pairs[base_key] = {}
+            lora_pairs[base_key]["A"] = value
+        elif "lora_B" in key:
+            base_key = key.replace(".lora_B.weight", "").replace("base_model.model.", "")
+            if base_key not in lora_pairs:
+                lora_pairs[base_key] = {}
+            lora_pairs[base_key]["B"] = value
+
+    # Merge LoRA into base weights: W' = W + scaling * (B @ A)
+    merged_count = 0
+    for base_key, lora in lora_pairs.items():
+        weight_key = base_key + ".weight"
+        if weight_key in base_state_dict and "A" in lora and "B" in lora:
+            A = lora["A"].to(torch.float32)  # (r, in_features)
+            B = lora["B"].to(torch.float32)  # (out_features, r)
+            delta = (B @ A) * scaling
+            base_state_dict[weight_key] = (base_state_dict[weight_key].to(torch.float32) + delta).to(torch.bfloat16)
+            merged_count += 1
+
+    print(f"Merged {merged_count} LoRA layers into base model")
+    return base_state_dict
+
+
+def copy_tokenizer_files(src_dir: str, dst_dir: str):
+    """Copy tokenizer files from source to destination."""
+    for filename in os.listdir(src_dir):
+        if filename.endswith(('.json', '.txt', '.jinja', '.model')):
+            if filename.startswith(('tokenizer', 'special_tokens', 'added_tokens', 'vocab',
+                                   'merges', 'chat_template', 'generation_config')):
+                src = os.path.join(src_dir, filename)
+                dst = os.path.join(dst_dir, filename)
+                if os.path.isfile(src) and not os.path.exists(dst):
+                    shutil.copy2(src, dst)
+                    print(f'Copied {filename}')
+
+
+def merge_checkpoint_to_hf(local_dir: str, output_dir: str) -> str:
+    """Merge FSDP checkpoint (with optional LoRA) to HuggingFace format."""
+
+    # Step 1: Merge FSDP shards
+    state_dict = merge_fsdp_shards(local_dir)
+
+    # Step 2: Clean PEFT wrapper prefixes
+    state_dict = clean_state_dict_keys(state_dict)
+
+    # Step 3: Apply LoRA if present
+    lora_adapter_path = os.path.join(local_dir, "lora_adapter")
+    if has_lora_adapter(local_dir):
+        print("Detected LoRA adapter, merging LoRA weights...")
+        state_dict = apply_lora_to_state_dict(state_dict, lora_adapter_path)
+
+    # Step 4: Save as HuggingFace model
     print('Writing to local disk')
-    hf_path = os.path.join(local_dir, 'huggingface')
-    os.makedirs(hf_path, exist_ok=True)
-    # Load config from local_dir (where config.json exists), not huggingface subfolder
+    os.makedirs(output_dir, exist_ok=True)
     config = AutoConfig.from_pretrained(local_dir)
 
     if 'ForTokenClassification' in config.architectures[0]:
@@ -146,33 +249,42 @@ if __name__ == '__main__':
     elif 'ForConditionalGeneration' in config.architectures[0]:
         auto_model = AutoModelForVision2Seq
     else:
-        raise NotImplementedError(f'Unknown architecture {config["architectures"]}')
+        raise NotImplementedError(f'Unknown architecture {config.architectures}')
 
     with torch.device('meta'):
         model = auto_model.from_config(config, torch_dtype=torch.bfloat16)
     model.to_empty(device='cpu')
 
-    print(f'Saving model to {hf_path}')
-    model.save_pretrained(hf_path, state_dict=state_dict)
+    print(f'Saving model to {output_dir}')
+    model.save_pretrained(output_dir, state_dict=state_dict)
     del state_dict
     del model
 
-    # Copy tokenizer and config files from local_dir to huggingface folder
-    import shutil
-    for filename in os.listdir(local_dir):
-        if filename.endswith('.json') or filename.endswith('.txt') or filename.endswith('.jinja'):
-            src = os.path.join(local_dir, filename)
-            dst = os.path.join(hf_path, filename)
-            if os.path.isfile(src) and not os.path.exists(dst):
-                shutil.copy2(src, dst)
-                print(f'Copied {filename} to {hf_path}')
+    # Step 5: Copy tokenizer files
+    copy_tokenizer_files(local_dir, output_dir)
+
+    return output_dir
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Merge FSDP/LoRA checkpoints to HuggingFace format")
+    parser.add_argument('--local_dir', required=True, type=str,
+                       help="Path to checkpoint (e.g., .../global_step_84/actor)")
+    parser.add_argument("--hf_upload_path", type=str,
+                       help="HuggingFace repo (e.g., 'username/model-name')")
+    parser.add_argument("--private", action="store_true", help="Upload as private repo")
+    parser.add_argument("--output_dir", type=str, help="Output directory (default: local_dir/merged)")
+    args = parser.parse_args()
+
+    local_dir = args.local_dir
+    output_dir = args.output_dir or os.path.join(local_dir, 'merged')
+
+    hf_path = merge_checkpoint_to_hf(local_dir, output_dir)
+
     if args.hf_upload_path:
-        # Push to hugging face
+        print(f"Uploading to HuggingFace: {args.hf_upload_path}")
         from huggingface_hub import HfApi
         api = HfApi()
         api.create_repo(repo_id=args.hf_upload_path, private=args.private, exist_ok=True)
-        api.upload_folder(
-            folder_path=hf_path,
-            repo_id=args.hf_upload_path,
-            repo_type="model"
-        )
+        api.upload_folder(folder_path=hf_path, repo_id=args.hf_upload_path, repo_type="model")
+        print(f"Done: https://huggingface.co/{args.hf_upload_path}")
