@@ -15,10 +15,14 @@
 Merge FSDP checkpoints (with or without LoRA) to HuggingFace format.
 
 Usage:
+    # Merge FSDP checkpoint (base model only, default)
     python merge_model2hf.py --local_dir /path/to/checkpoint/actor
-    python merge_model2hf.py --local_dir /path/to/checkpoint/actor --hf_upload_path username/model --private
 
-The script auto-detects if LoRA was used and merges accordingly.
+    # Merge with LoRA applied
+    python merge_model2hf.py --local_dir /path/to/checkpoint/actor --lora
+
+    # Merge with LoRA and upload to HuggingFace
+    python merge_model2hf.py --local_dir /path/to/checkpoint/actor --lora --hf_upload_path username/model --private
 """
 
 from typing import List, Tuple, Dict
@@ -222,8 +226,14 @@ def copy_tokenizer_files(src_dir: str, dst_dir: str):
                     print(f'Copied {filename}')
 
 
-def merge_checkpoint_to_hf(local_dir: str, output_dir: str) -> str:
-    """Merge FSDP checkpoint (with optional LoRA) to HuggingFace format."""
+def merge_checkpoint_to_hf(local_dir: str, output_dir: str, apply_lora: bool = True) -> str:
+    """Merge FSDP checkpoint (with optional LoRA) to HuggingFace format.
+
+    Args:
+        local_dir: Path to checkpoint (e.g., .../global_step_84/actor)
+        output_dir: Output directory for merged model
+        apply_lora: If True, merge LoRA weights into base model. If False, skip LoRA.
+    """
 
     # Step 1: Merge FSDP shards
     state_dict = merge_fsdp_shards(local_dir)
@@ -231,11 +241,14 @@ def merge_checkpoint_to_hf(local_dir: str, output_dir: str) -> str:
     # Step 2: Clean PEFT wrapper prefixes
     state_dict = clean_state_dict_keys(state_dict)
 
-    # Step 3: Apply LoRA if present
+    # Step 3: Apply LoRA if requested
     lora_adapter_path = os.path.join(local_dir, "lora_adapter")
-    if has_lora_adapter(local_dir):
-        print("Detected LoRA adapter, merging LoRA weights...")
-        state_dict = apply_lora_to_state_dict(state_dict, lora_adapter_path)
+    if apply_lora:
+        if has_lora_adapter(local_dir):
+            print("Merging LoRA weights...")
+            state_dict = apply_lora_to_state_dict(state_dict, lora_adapter_path)
+        else:
+            raise ValueError(f"--lora specified but no lora_adapter folder found in {local_dir}")
 
     # Step 4: Save as HuggingFace model
     print('Writing to local disk')
@@ -274,12 +287,14 @@ if __name__ == '__main__':
                        help="HuggingFace repo (e.g., 'username/model-name')")
     parser.add_argument("--private", action="store_true", help="Upload as private repo")
     parser.add_argument("--output_dir", type=str, help="Output directory (default: local_dir/merged)")
+    parser.add_argument("--lora", action="store_true",
+                       help="Apply LoRA adapter weights from lora_adapter/ folder")
     args = parser.parse_args()
 
     local_dir = args.local_dir
     output_dir = args.output_dir or os.path.join(local_dir, 'merged')
 
-    hf_path = merge_checkpoint_to_hf(local_dir, output_dir)
+    hf_path = merge_checkpoint_to_hf(local_dir, output_dir, apply_lora=args.lora)
 
     if args.hf_upload_path:
         print(f"Uploading to HuggingFace: {args.hf_upload_path}")
