@@ -307,14 +307,14 @@ if __name__ == '__main__':
     parser.add_argument("--hf_upload_path", type=str,
                        help="HuggingFace repo (e.g., 'username/model-name')")
     parser.add_argument("--private", action="store_true", help="Upload as private repo")
-    parser.add_argument("--output_dir", type=str, help="Output directory (default: local_dir/merged)")
+    parser.add_argument("--output_dir", type=str, help="Output directory (default: local_dir/huggingface)")
     parser.add_argument("--lora", action="store_true",
                        help="Merge LoRA weights into base model (for inference/upload). "
                             "Without this flag, PEFT structure is preserved for resume training.")
     args = parser.parse_args()
 
     local_dir = args.local_dir
-    output_dir = args.output_dir or os.path.join(local_dir, 'merged')
+    output_dir = args.output_dir or os.path.join(local_dir, 'huggingface')
 
     hf_path = merge_checkpoint_to_hf(local_dir, output_dir, apply_lora=args.lora)
 
