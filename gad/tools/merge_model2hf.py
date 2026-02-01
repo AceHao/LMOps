@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Merge FSDP checkpoints (with or without LoRA) to HuggingFace format.
+Merge FSDP checkpoints to HuggingFace format.
 
 Usage:
-    # Merge FSDP checkpoint (base model only, default)
+    # Merge FSDP checkpoint for resume training (keeps PEFT structure + lora_adapter/)
     python merge_model2hf.py --local_dir /path/to/checkpoint/actor
 
-    # Merge with LoRA applied
+    # Merge with LoRA baked into weights (for inference/upload)
     python merge_model2hf.py --local_dir /path/to/checkpoint/actor --lora
 
     # Merge with LoRA and upload to HuggingFace
@@ -226,29 +226,46 @@ def copy_tokenizer_files(src_dir: str, dst_dir: str):
                     print(f'Copied {filename}')
 
 
-def merge_checkpoint_to_hf(local_dir: str, output_dir: str, apply_lora: bool = True) -> str:
-    """Merge FSDP checkpoint (with optional LoRA) to HuggingFace format.
+def copy_lora_adapter(src_dir: str, dst_dir: str):
+    """Copy lora_adapter folder from source to destination."""
+    src_lora = os.path.join(src_dir, "lora_adapter")
+    dst_lora = os.path.join(dst_dir, "lora_adapter")
+    if os.path.exists(src_lora):
+        if os.path.exists(dst_lora):
+            shutil.rmtree(dst_lora)
+        shutil.copytree(src_lora, dst_lora)
+        print(f'Copied lora_adapter/ folder')
+
+
+def merge_checkpoint_to_hf(local_dir: str, output_dir: str, apply_lora: bool = False) -> str:
+    """Merge FSDP checkpoint to HuggingFace format.
 
     Args:
         local_dir: Path to checkpoint (e.g., .../global_step_84/actor)
         output_dir: Output directory for merged model
-        apply_lora: If True, merge LoRA weights into base model. If False, skip LoRA.
+        apply_lora: If True, clean PEFT prefixes and merge LoRA into base weights (for inference).
+                    If False, keep PEFT structure and copy lora_adapter/ (for resume training).
     """
 
     # Step 1: Merge FSDP shards
     state_dict = merge_fsdp_shards(local_dir)
 
-    # Step 2: Clean PEFT wrapper prefixes
-    state_dict = clean_state_dict_keys(state_dict)
-
-    # Step 3: Apply LoRA if requested
-    lora_adapter_path = os.path.join(local_dir, "lora_adapter")
     if apply_lora:
-        if has_lora_adapter(local_dir):
-            print("Merging LoRA weights...")
-            state_dict = apply_lora_to_state_dict(state_dict, lora_adapter_path)
-        else:
+        # For inference/upload: clean PEFT prefixes and merge LoRA into weights
+        lora_adapter_path = os.path.join(local_dir, "lora_adapter")
+        if not has_lora_adapter(local_dir):
             raise ValueError(f"--lora specified but no lora_adapter folder found in {local_dir}")
+
+        # Step 2: Clean PEFT wrapper prefixes
+        print("Cleaning PEFT wrapper prefixes...")
+        state_dict = clean_state_dict_keys(state_dict)
+
+        # Step 3: Apply LoRA weights
+        print("Merging LoRA weights into base model...")
+        state_dict = apply_lora_to_state_dict(state_dict, lora_adapter_path)
+    else:
+        # For resume training: keep PEFT structure as-is
+        print("Keeping PEFT structure for resume training...")
 
     # Step 4: Save as HuggingFace model
     print('Writing to local disk')
@@ -276,6 +293,10 @@ def merge_checkpoint_to_hf(local_dir: str, output_dir: str, apply_lora: bool = T
     # Step 5: Copy tokenizer files
     copy_tokenizer_files(local_dir, output_dir)
 
+    # Step 6: Copy lora_adapter/ if not merging (for resume training)
+    if not apply_lora and has_lora_adapter(local_dir):
+        copy_lora_adapter(local_dir, output_dir)
+
     return output_dir
 
 
@@ -288,7 +309,8 @@ if __name__ == '__main__':
     parser.add_argument("--private", action="store_true", help="Upload as private repo")
     parser.add_argument("--output_dir", type=str, help="Output directory (default: local_dir/merged)")
     parser.add_argument("--lora", action="store_true",
-                       help="Apply LoRA adapter weights from lora_adapter/ folder")
+                       help="Merge LoRA weights into base model (for inference/upload). "
+                            "Without this flag, PEFT structure is preserved for resume training.")
     args = parser.parse_args()
 
     local_dir = args.local_dir
