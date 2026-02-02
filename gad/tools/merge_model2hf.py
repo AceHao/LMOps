@@ -18,6 +18,9 @@ Usage:
     # Merge FSDP checkpoint for resume training (keeps PEFT structure + lora_adapter/)
     python merge_model2hf.py --local_dir /path/to/checkpoint/actor
 
+    # Clean PEFT prefixes but keep lora_adapter/ separate (for resume with vLLM TP>1)
+    python merge_model2hf.py --local_dir /path/to/checkpoint/actor --clean-model-prefix
+
     # Merge with LoRA baked into weights (for inference/upload)
     python merge_model2hf.py --local_dir /path/to/checkpoint/actor --lora
 
@@ -237,7 +240,8 @@ def copy_lora_adapter(src_dir: str, dst_dir: str):
         print(f'Copied lora_adapter/ folder')
 
 
-def merge_checkpoint_to_hf(local_dir: str, output_dir: str, apply_lora: bool = False) -> str:
+def merge_checkpoint_to_hf(local_dir: str, output_dir: str, apply_lora: bool = False,
+                           clean_model_prefix: bool = False) -> str:
     """Merge FSDP checkpoint to HuggingFace format.
 
     Args:
@@ -245,6 +249,8 @@ def merge_checkpoint_to_hf(local_dir: str, output_dir: str, apply_lora: bool = F
         output_dir: Output directory for merged model
         apply_lora: If True, clean PEFT prefixes and merge LoRA into base weights (for inference).
                     If False, keep PEFT structure and copy lora_adapter/ (for resume training).
+        clean_model_prefix: If True, clean PEFT prefixes but keep lora_adapter/ separate.
+                            Use this for resume training with vLLM TP>1.
     """
 
     # Step 1: Merge FSDP shards
@@ -263,6 +269,10 @@ def merge_checkpoint_to_hf(local_dir: str, output_dir: str, apply_lora: bool = F
         # Step 3: Apply LoRA weights
         print("Merging LoRA weights into base model...")
         state_dict = apply_lora_to_state_dict(state_dict, lora_adapter_path)
+    elif clean_model_prefix:
+        # For resume training with vLLM TP>1: clean PEFT prefixes but keep lora_adapter/ separate
+        print("Cleaning PEFT wrapper prefixes (keeping lora_adapter/ separate)...")
+        state_dict = clean_state_dict_keys(state_dict)
     else:
         # For resume training: keep PEFT structure as-is
         print("Keeping PEFT structure for resume training...")
@@ -293,8 +303,8 @@ def merge_checkpoint_to_hf(local_dir: str, output_dir: str, apply_lora: bool = F
     # Step 5: Copy tokenizer files
     copy_tokenizer_files(local_dir, output_dir)
 
-    # Step 6: Copy lora_adapter/ if not merging (for resume training)
-    if not apply_lora and has_lora_adapter(local_dir):
+    # Step 6: Copy lora_adapter/ if not merging LoRA into weights (for resume training)
+    if (not apply_lora) and has_lora_adapter(local_dir):
         copy_lora_adapter(local_dir, output_dir)
 
     return output_dir
@@ -311,12 +321,19 @@ if __name__ == '__main__':
     parser.add_argument("--lora", action="store_true",
                        help="Merge LoRA weights into base model (for inference/upload). "
                             "Without this flag, PEFT structure is preserved for resume training.")
+    parser.add_argument("--clean-model-prefix", action="store_true",
+                       help="Clean PEFT prefixes (base_model.model.) but keep lora_adapter/ separate. "
+                            "Use this for resume training with vLLM tensor_parallel_size > 1.")
     args = parser.parse_args()
+
+    if args.lora and args.clean_model_prefix:
+        parser.error("--lora and --clean-model-prefix are mutually exclusive")
 
     local_dir = args.local_dir
     output_dir = args.output_dir or os.path.join(local_dir, 'huggingface')
 
-    hf_path = merge_checkpoint_to_hf(local_dir, output_dir, apply_lora=args.lora)
+    hf_path = merge_checkpoint_to_hf(local_dir, output_dir, apply_lora=args.lora,
+                                     clean_model_prefix=args.clean_model_prefix)
 
     if args.hf_upload_path:
         print(f"Uploading to HuggingFace: {args.hf_upload_path}")
