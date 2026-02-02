@@ -31,11 +31,33 @@ while [[ $# -gt 0 ]]; do
             NNODES="$2"
             shift 2
             ;;
+        --lr)
+            LEARNING_RATE="$2"
+            shift 2
+            ;;
+        --rank)
+            LORA_RANK="$2"
+            shift 2
+            ;;
         *)
             break
             ;;
     esac
 done
+
+# Validate required parameters
+if [[ -z "${LEARNING_RATE}" ]]; then
+    echo "Error: --lr is required"
+    exit 1
+fi
+
+if [[ -z "${LORA_RANK}" ]]; then
+    echo "Error: --rank is required"
+    exit 1
+fi
+
+# Alpha is twice the rank
+LORA_ALPHA=$((LORA_RANK * 2))
 
 export WANDB_INIT_TIMEOUT=600
 export TOKENIZERS_PARALLELISM=true
@@ -47,7 +69,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GAD_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORKSPACE_DIR="$(cd "$GAD_DIR/../.." && pwd)"
 DATA_DIR="${GAD_DIR}/chai_opus_data"
-CHECKPOINT_DIR="${WORKSPACE_DIR}/checkpoints"
+CHECKPOINT_DIR="/workspace/gad-replication/checkpoints"
 
 # Defaults
 MODEL_PATH="${MODEL_PATH:-${WORKSPACE_DIR}/models/Qwen2.5-3B-Instruct}"
@@ -71,7 +93,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_response_length=1536 \
     data.truncation=right \
     actor_rollout_ref.model.path=$MODEL_PATH \
-    actor_rollout_ref.actor.optim.lr=1e-5 \
+    actor_rollout_ref.actor.optim.lr=${LEARNING_RATE} \
     actor_rollout_ref.actor.grad_clip=1.0 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=${MINI_BATCH_SIZE} \
@@ -83,8 +105,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=1 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
-    actor_rollout_ref.model.lora_rank=64 \
-    actor_rollout_ref.model.lora_alpha=128 \
+    actor_rollout_ref.model.lora_rank=${LORA_RANK} \
+    actor_rollout_ref.model.lora_alpha=${LORA_ALPHA} \
     actor_rollout_ref.model.target_modules=all-linear \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
@@ -97,8 +119,8 @@ python3 -m verl.trainer.main_ppo \
     critic.model.path=$REWARD_MODEL_PATH \
     critic.model.use_remove_padding=True \
     critic.model.enable_gradient_checkpointing=True \
-    critic.model.lora_rank=64 \
-    critic.model.lora_alpha=128 \
+    critic.model.lora_rank=${LORA_RANK} \
+    critic.model.lora_alpha=${LORA_ALPHA} \
     critic.model.target_modules=all-linear \
     critic.optim.lr=1e-4 \
     critic.ppo_max_token_len_per_gpu=24576 \
