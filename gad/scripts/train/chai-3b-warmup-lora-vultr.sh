@@ -39,6 +39,10 @@ while [[ $# -gt 0 ]]; do
             LORA_RANK="$2"
             shift 2
             ;;
+        --data_subdir)
+            DATA_SUBDIR="$2"
+            shift 2
+            ;;
         *)
             break
             ;;
@@ -53,6 +57,11 @@ fi
 
 if [[ -z "${LORA_RANK}" ]]; then
     echo "Error: --rank is required"
+    exit 1
+fi
+
+if [[ -z "${DATA_SUBDIR}" ]]; then
+    echo "Error: --data_subdir is required"
     exit 1
 fi
 
@@ -85,8 +94,8 @@ MINI_BATCH_SIZE=256
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.prompt_key=content \
-    data.train_files=${DATA_DIR}/5pct/train.parquet \
-    data.val_files=${DATA_DIR}/5pct/val.parquet \
+    data.train_files=${DATA_DIR}/${DATA_SUBDIR}/train.parquet \
+    data.val_files=${DATA_DIR}/${DATA_SUBDIR}/val.parquet \
     data.train_batch_size=${TRAIN_BATCH_SIZE} \
     data.val_batch_size=${VAL_BATCH_SIZE} \
     data.max_prompt_length=2048 \
