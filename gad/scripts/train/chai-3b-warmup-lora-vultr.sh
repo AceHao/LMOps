@@ -65,6 +65,11 @@ if [[ -z "${DATA_SUBDIR}" ]]; then
     exit 1
 fi
 
+if [[ -z "${EXP_NAME}" ]]; then
+    echo "Error: --exp_name is required"
+    exit 1
+fi
+
 # Alpha is twice the rank
 LORA_ALPHA=$((LORA_RANK * 2))
 
@@ -87,9 +92,9 @@ REWARD_MODEL_PATH="${REWARD_MODEL_PATH:-${WORKSPACE_DIR}/models/Qwen2.5-3B-Instr
 # --- B200 Tuning ---
 # TP=1: 3B fits in one GPU. Enables DP=8 (Fastest).
 # Batch=2048: Saturates B200 HBM/Compute.
-TRAIN_BATCH_SIZE=512
-VAL_BATCH_SIZE=1024
-MINI_BATCH_SIZE=256
+TRAIN_BATCH_SIZE=128
+VAL_BATCH_SIZE=256
+MINI_BATCH_SIZE=128
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -98,12 +103,12 @@ python3 -m verl.trainer.main_ppo \
     data.val_files=${DATA_DIR}/${DATA_SUBDIR}/val.parquet \
     data.train_batch_size=${TRAIN_BATCH_SIZE} \
     data.val_batch_size=${VAL_BATCH_SIZE} \
-    data.max_prompt_length=2048 \
-    data.max_response_length=1536 \
-    data.truncation=right \
+    data.max_prompt_length=4096 \
+    data.max_response_length=1024 \
+    data.truncation=left \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=${LEARNING_RATE} \
-    actor_rollout_ref.actor.grad_clip=1.0 \
+    actor_rollout_ref.actor.grad_clip=0.2 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=${MINI_BATCH_SIZE} \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
@@ -123,7 +128,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.temperature=0.8 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
-    actor_rollout_ref.rollout.n=16 \
+    actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=False \
     critic.model.path=$REWARD_MODEL_PATH \
     critic.model.use_remove_padding=True \
@@ -131,12 +136,12 @@ python3 -m verl.trainer.main_ppo \
     critic.model.lora_rank=${LORA_RANK} \
     critic.model.lora_alpha=${LORA_ALPHA} \
     critic.model.target_modules=all-linear \
-    critic.optim.lr=1e-4 \
+    critic.optim.lr=1e-6 \
     critic.ppo_max_token_len_per_gpu=24576 \
-    critic.grad_clip=1.0 \
+    critic.grad_clip=0.2 \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.val_before_train=True \
-    trainer.critic_warmup=10 \
+    trainer.critic_warmup=5 \
     trainer.logger=['console','wandb'] \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${EXP_NAME} \
@@ -145,7 +150,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=15 \
     trainer.test_freq=15 \
     trainer.default_hdfs_dir=null \
-    trainer.total_epochs=1 "${@:1}" \
+    trainer.total_epochs=2 "${@:1}" \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \
     trainer.default_local_dir=${CHECKPOINT_DIR}/${EXP_NAME}
