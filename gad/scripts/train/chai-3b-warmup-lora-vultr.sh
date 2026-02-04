@@ -136,7 +136,7 @@ python3 -m verl.trainer.main_ppo \
     critic.model.lora_rank=${LORA_RANK} \
     critic.model.lora_alpha=${LORA_ALPHA} \
     critic.model.target_modules=all-linear \
-    critic.optim.lr=1e-6 \
+    critic.optim.lr=${LEARNING_RATE} \
     critic.ppo_max_token_len_per_gpu=24576 \
     critic.grad_clip=0.2 \
     algorithm.kl_ctrl.kl_coef=0.001 \
@@ -147,8 +147,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name=${EXP_NAME} \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.save_freq=15 \
-    trainer.test_freq=15 \
+    trainer.save_freq=50 \
+    trainer.test_freq=50 \
     trainer.default_hdfs_dir=null \
     trainer.total_epochs=2 "${@:1}" \
     actor_rollout_ref.rollout.enforce_eager=False \
